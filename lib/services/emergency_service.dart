@@ -25,7 +25,7 @@ class EmergencyService {
   DateTime? _lastShakeTime;
   int _shakeCount = 0;
   static const double _shakeThreshold = 45.0; // Increased from 18.0
-  static const int _minShakeCount = 8; // Increased from 3
+  static const int _minShakeCount = 3; // Increased from 3
   static const int _shakeWindowMs = 1200; // Increased window from 2000
 
   // Fall alert state
@@ -96,12 +96,12 @@ class EmergencyService {
   void startMonitoring() {
     if (_isMonitoring) return;
     if (_emergencyNumbers.isEmpty) {
-      _ttsService.speak("Please set at least one emergency number first.");
+      _ttsService.speak("add_contact_first", isKey: true);
       return;
     }
     
     _isMonitoring = true;
-    _ttsService.speak("Emergency fall and shake detection enabled.");
+    _ttsService.speak("monitoring_active", isKey: true);
     
     // 1. Fall Monitor
     _accelerometerSubscription = accelerometerEventStream().listen((AccelerometerEvent event) {
@@ -118,7 +118,7 @@ class EmergencyService {
     _accelerometerSubscription?.cancel();
     _shakeSubscription?.cancel();
     _isMonitoring = false;
-    _ttsService.speak("Emergency detection disabled.");
+    _ttsService.speak("monitoring_disabled", isKey: true);
   }
 
   void _analyzeShakeData(UserAccelerometerEvent event) {
@@ -139,7 +139,7 @@ class EmergencyService {
         _shakeCount = 0; // Reset
         print("Shake Detected!");
         if (!_isAlertActive) {
-           _ttsService.speak("Shake detected.");
+           _ttsService.speak("shake_detected", isKey: true);
            _triggerFallAlert(); // Reuse fall logic
         }
       }
@@ -183,7 +183,7 @@ class EmergencyService {
     _remainingSeconds = 10;
     
     HapticFeedback.heavyImpact();
-    _ttsService.speak("Fall detected! Alert will be sent in 10 seconds. Double tap screen to cancel.", force: true);
+    _ttsService.speak("fall_detected", isKey: true, force: true);
     
     // Notify UI immediately to show screen
     _onCountdownUpdate?.call();
@@ -245,7 +245,7 @@ class EmergencyService {
   Future<void> _sendEmergencyAlert() async {
     stopMonitoring(); // Stop monitoring to prevent loop
     
-    await _ttsService.speak("Sending emergency alerts now.", force: true);
+    await _ttsService.speak("sending_sos", isKey: true, force: true);
     
     try {
       Position position;
@@ -275,9 +275,9 @@ class EmergencyService {
       
       if (successCount > 0) {
         onSmsSent?.call();
-        await _ttsService.speak("Emergency messages sent to $successCount contacts.");
+        await _ttsService.speak("sos_sent", isKey: true);
       } else {
-        await _ttsService.speak("Failed to send any emergency messages.");
+        await _ttsService.speak("sos_fail", isKey: true);
       }
 
     } catch (e) {
@@ -315,7 +315,7 @@ class EmergencyService {
 
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      _ttsService.speak("Location services are disabled. Please turn on your GPS.");
+      _ttsService.speak("loc_disabled", isKey: true);
       return Future.error('Location services are disabled.');
     }
 

@@ -86,12 +86,12 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
 
     // 2. Initialize TTS
     await _ttsService.initialize();
-    _ttsService.speak("Vision Nav ready. Tap screen to detect. Long press for auto mode.");
+    _ttsService.speak("ready", isKey: true);
 
     // 3. Initialize Vision
     await _visionService.loadModel();
     if (!_visionService.isModelLoaded) {
-      _ttsService.speak("Warning. Visual model failed to load.");
+      _ttsService.speak("model_fail", isKey: true);
     }
     
     // 4. Initialize Emergency Service
@@ -135,7 +135,7 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
       await _cameraController!.initialize();
       if (mounted) setState(() => _isInitialized = true);
     } catch (e) {
-      _ttsService.speak("Camera error.");
+      _ttsService.speak("cam_error", isKey: true);
     }
   }
 
@@ -166,61 +166,76 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
       bool shouldReadText = false;
       
       if (detections.isEmpty) {
-        announcement = "Pathway clear."; // Updated to say "Pathway clear" if nothing detected
+        announcement = _ttsService.translate("clear");
       } else {
-        // Prioritize stairs with step count
+        // Prioritize stairs
         final staircase = detections.firstWhere(
           (d) => d.isStaircase, 
           orElse: () => DetectedObject(label: "", confidence: 0, left:0, top:0, width:0, height:0, distanceMeters: 0)
         );
         
-        // Check for doors
         final door = detections.firstWhere(
           (d) => d.isDoor, 
           orElse: () => DetectedObject(label: "", confidence: 0, left:0, top:0, width:0, height:0, distanceMeters: 0)
         );
         
-        // Check for signs/text
         final sign = detections.firstWhere(
             (d) => d.label.toLowerCase().contains('sign') || d.label.toLowerCase().contains('text'),
             orElse: () => DetectedObject(label: "", confidence: 0, left:0, top:0, width:0, height:0, distanceMeters: 0)
         );
 
         if (staircase.label.isNotEmpty) {
-           HapticFeedback.heavyImpact(); // DANGER WARNING
-           String stepInfo = staircase.stepCount > 0 
-               ? " with approximately ${staircase.stepCount} steps"
-               : "";
-           announcement = "Caution! Staircase detected ${staircase.locationLabel} at ${staircase.distanceMeters.toStringAsFixed(1)} meters$stepInfo.";
+           HapticFeedback.heavyImpact();
+           final distance = staircase.distanceMeters.toStringAsFixed(1);
+           final lang = _ttsService.currentLanguage;
+           if (lang == 'ml-IN') {
+             String stepInfo = staircase.stepCount > 0 ? " ${_ttsService.translate('with')} ${staircase.stepCount} ${_ttsService.translate('steps')}" : "";
+             announcement = "${_ttsService.translate('caution_stairs')} ${_ttsService.translate(staircase.locationLabel)} $distance ${_ttsService.translate('meters')} $stepInfo.";
+           } else {
+             String stepInfo = staircase.stepCount > 0 ? " with approximately ${staircase.stepCount} steps" : "";
+             announcement = "Caution! Staircase detected ${_ttsService.translate(staircase.locationLabel)} at $distance meters$stepInfo.";
+           }
         } else if (door.label.isNotEmpty) {
-           // Announce door with open/close status
-           String doorStatus = door.isDoorOpen ? "open" : "closed";
-           announcement = "${door.label} detected ${door.locationLabel} at ${door.distanceMeters.toStringAsFixed(1)} meters. The door appears to be $doorStatus.";
+           String doorStatus = door.isDoorOpen ? _ttsService.translate("open") : _ttsService.translate("closed");
+           final distance = door.distanceMeters.toStringAsFixed(1);
+           final lang = _ttsService.currentLanguage;
+           if (lang == 'ml-IN') {
+             announcement = "${_ttsService.translate(door.label)} ${_ttsService.translate(door.locationLabel)} $distance ${_ttsService.translate('meters')} ${_ttsService.translate('away')}. ${_ttsService.translate('door_status')} $doorStatus.";
+           } else {
+             announcement = "${door.label} detected ${_ttsService.translate(door.locationLabel)} at $distance meters. The door appears to be $doorStatus.";
+           }
         } else if (sign.label.isNotEmpty) {
-           announcement = "Sign board detected. Reading text...";
+           announcement = _ttsService.translate("sign_detected");
            shouldReadText = true;
         } else {
-            // Provide detail for top 5 objects
-            final itemsToShow = detections.take(5).toList();
+            final itemsToShow = detections.take(3).toList(); // Reduced to 3 for brevity in voice
+            final isMalayalam = _ttsService.currentLanguage == 'ml-IN';
+            
             final details = itemsToShow.map((d) {
               String extra = "";
               if (d.isStaircase && d.stepCount > 0) {
-                extra = " with ${d.stepCount} steps";
+                extra = isMalayalam ? " (${d.stepCount} പടികൾ)" : " (${d.stepCount} steps)";
               } else if (d.isDoor) {
-                extra = d.isDoorOpen ? " (open)" : " (closed)";
+                extra = d.isDoorOpen ? " (${_ttsService.translate('open')})" : " (${_ttsService.translate('closed')})";
               }
-              return "${d.label}$extra is ${d.locationLabel}, ${d.distanceMeters.toStringAsFixed(1)} meters away";
+              
+              final translatedLabel = _ttsService.translate(d.label);
+              final translatedLocation = _ttsService.translate(d.locationLabel);
+              
+              if (isMalayalam) {
+                return "$translatedLabel$extra $translatedLocation ${d.distanceMeters.toStringAsFixed(1)} മീറ്റർ അകലെയാണ്";
+              }
+              return "$translatedLabel$extra is $translatedLocation, ${d.distanceMeters.toStringAsFixed(1)} meters away";
             }).toList();
             
-            announcement = "There is a ${details.join('. Next, ')}.";
+            final separator = isMalayalam ? ". ${_ttsService.translate('next')} " : ". Next, ";
+            announcement = isMalayalam ? details.join(separator) : "There is a ${details.join(separator)}.";
         }
       }
 
-      // Speak the announcement if available
       if (announcement.isNotEmpty) {
-        // Don't interrupt if we are about to do OCR which will also speak
         if (shouldReadText) {
-           await _ttsService.speak(announcement); // Say "Reading text..."
+           await _ttsService.speak(announcement);
         } else {
            _ttsService.speak(announcement); 
            _lastAnnouncement = announcement;
@@ -252,7 +267,7 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
   void _onTap() {
     HapticFeedback.lightImpact(); // Haptic for tap
     if (_autoMode) {
-      _ttsService.speak("Pausing auto mode.");
+      _ttsService.speak("pause_auto", isKey: true);
       _toggleAutoMode(); // Turn it off
     } else {
       _performDetection();
@@ -269,10 +284,10 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
     setState(() => _autoMode = !_autoMode);
     
     if (_autoMode) {
-      _ttsService.speak("Continuous navigation started.");
+      _ttsService.speak("start_auto", isKey: true);
       _autoTimer = Timer.periodic(const Duration(seconds: 4), (_) => _performDetection());
     } else {
-      _ttsService.speak("Navigation stopped.");
+      _ttsService.speak("stop_nav", isKey: true);
       _autoTimer?.cancel();
     }
   }
@@ -290,7 +305,7 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
     if (_lastAnnouncement.isNotEmpty) {
       _ttsService.speak(_lastAnnouncement, force: true);
     } else {
-      _ttsService.speak("No previous detection.");
+      _ttsService.speak("no_prev", isKey: true, force: true);
     }
   }
   
@@ -312,7 +327,7 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
     if (!mounted || _fallAlertDialogContext != null) return;
     
     _isDialogMounted = true;
-    _ttsService.speak("Fall detected! Double tap anywhere to cancel or stay still to send alert.", force: true);
+    _ttsService.speak("fall_detected", isKey: true, force: true);
 
     showGeneralDialog(
       context: context,
@@ -364,9 +379,9 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
                           children: [
                             const Icon(Icons.warning_rounded, color: Colors.redAccent, size: 60),
                             const SizedBox(height: 10),
-                            const Text(
-                              "FALL DETECTED",
-                              style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: 1.5),
+                            Text(
+                              _ttsService.translate("FALL DETECTED"),
+                              style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: 1.5),
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 20),
@@ -395,10 +410,10 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
                               style: TextStyle(color: Colors.white70, fontSize: 16),
                             ),
                             const SizedBox(height: 10),
-                            const Text(
-                              "DOUBLE TAP ANYWHERE\nTO CANCEL",
+                            Text(
+                              _ttsService.translate("DOUBLE TAP ANYWHERE\nTO CANCEL"),
                               textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1),
+                              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1),
                             ),
                             const SizedBox(height: 20),
                           ],
@@ -487,9 +502,9 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      "Emergency Settings",
-                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+                    Text(
+                      _ttsService.translate("Emergency Settings"),
+                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
                     ),
                     IconButton(
                       icon: const Icon(Icons.close, color: Colors.white54),
@@ -498,9 +513,43 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
                   ],
                 ),
                 const SizedBox(height: 10),
-                const Text(
-                  "Contacts added here will receive SOS messages with your location if a fall or shake is detected.",
-                  style: TextStyle(color: Colors.white70),
+                Text(
+                  _ttsService.translate("Contacts added here will receive SOS messages with your location if a fall or shake is detected."),
+                  style: const TextStyle(color: Colors.white70),
+                ),
+                const SizedBox(height: 20),
+                
+                // Language Switcher
+                const Text("APP LANGUAGE", style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 1.5)),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildLanguageOption(
+                        "English", 
+                        "en-US", 
+                        _ttsService.currentLanguage == "en-US",
+                        () async {
+                          await _ttsService.setLanguage("en-US");
+                          setDialogState((){});
+                          _ttsService.speak("Language set to English.");
+                        }
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _buildLanguageOption(
+                        "മലയാളം", 
+                        "ml-IN", 
+                        _ttsService.currentLanguage == "ml-IN",
+                        () async {
+                          await _ttsService.setLanguage("ml-IN");
+                          setDialogState((){});
+                          _ttsService.speak("ഭാഷ മലയാളമായി ക്രമീകരിച്ചു.");
+                        }
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 25),
                 
@@ -594,9 +643,9 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text("System Monitoring", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+                          Text(_ttsService.translate("System Monitoring"), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
                           Text(
-                            _emergencyService.isMonitoring ? "Active & Detecting" : "Currently Disabled",
+                            _emergencyService.isMonitoring ? _ttsService.translate("Active & Detecting") : _ttsService.translate("Currently Disabled"),
                             style: TextStyle(color: _emergencyService.isMonitoring ? Colors.redAccent : Colors.white54, fontSize: 14),
                           ),
                         ],
@@ -607,7 +656,7 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
                         onChanged: (val) {
                            if (val) {
                              if (_emergencyService.emergencyNumbers.isEmpty) {
-                               _ttsService.speak("Add a contact first before enabling monitoring.");
+                               _ttsService.speak("add_contact_first", isKey: true);
                                return;
                              }
                              _emergencyService.startMonitoring();
@@ -625,6 +674,29 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
             ),
           );
         }
+      ),
+    );
+  }
+
+  Widget _buildLanguageOption(String label, String code, bool isSelected, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.blueAccent.withOpacity(0.2) : Colors.white.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: isSelected ? Colors.blueAccent : Colors.white10),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.white54,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
       ),
     );
   }
@@ -689,7 +761,9 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
                     const Icon(Icons.touch_app, color: Colors.white, size: 80),
                     const SizedBox(height: 20),
                     Text(
-                      _autoMode ? "AUTO MODE ACTIVE\nScanning..." : "TAP SCREEN\nto detect",
+                      _autoMode 
+                        ? (_ttsService.currentLanguage == "ml-IN" ? "ഓട്ടോ മോഡ് സജീവം\nപരിശോധിക്കുന്നു..." : "AUTO MODE ACTIVE\nScanning...") 
+                        : (_ttsService.currentLanguage == "ml-IN" ? "സ്ക്രീനിൽ അമർത്തുക\nതിരിച്ചറിയാൻ" : "TAP SCREEN\nto detect"),
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white,
@@ -699,10 +773,10 @@ class _BlindSafeHomeScreenState extends State<BlindSafeHomeScreen> with WidgetsB
                     ),
                     const SizedBox(height: 40),
                     if (_emergencyService.isMonitoring)
-                      const Chip(
-                        label: Text("Fall Monitor ON"),
+                      Chip(
+                        label: Text(_ttsService.translate("Fall Monitor ON")),
                         backgroundColor: Colors.redAccent,
-                        avatar: Icon(Icons.shield, color: Colors.white),
+                        avatar: const Icon(Icons.shield, color: Colors.white),
                       )
                   ],
                 ),

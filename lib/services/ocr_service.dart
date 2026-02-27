@@ -22,13 +22,13 @@ class OcrService {
 
       if (text.trim().isNotEmpty) {
         String cleanText = text.replaceAll(RegExp(r'\s+'), ' ').trim();
-        _ttsService.speak("Detected text: $cleanText", force: true);
+        _ttsService.speak("${_ttsService.translate('detected_text')} $cleanText", force: true);
       } else {
-        _ttsService.speak("No legible text found.", force: true);
+        _ttsService.speak("no_text", isKey: true, force: true);
       }
     } catch (e) {
       print("OCR Error: $e");
-      _ttsService.speak("Could not read the text clearly.", force: true);
+      _ttsService.speak("ocr_error", isKey: true, force: true);
     }
   }
   
